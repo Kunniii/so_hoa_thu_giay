@@ -72,10 +72,10 @@ Configured in `letter_worker.config.WorkerConfig` or via environment variables:
 | `STORAGE_ROOT` | string / path | `.` (current dir) | Sandbox root directory. Prevents path traversal attacks (`../`). |
 | `DATABASE_PATH` | string / path | `letter_worker.db` | SQLite database file location for job queue and progress tracking. |
 | `MAX_IMAGE_FILE_SIZE_BYTES` | integer | `52428800` (50 MB) | Maximum upload file size allowed. |
-| `MAX_IMAGE_PIXELS` | integer | `50000000` (50 MP) | Maximum pixel area ($W \times H$) to guard against decompression bombs. |
+| `MAX_IMAGE_PIXELS` | integer | `50000000` (50 MP) | Maximum pixel area (W × H) to guard against decompression bombs. |
 | `MAX_OUTPUT_DIMENSION` | integer | `8192` | Maximum width or height of rectified image (auto-scaled down if exceeded). |
-| `CONFIDENCE_AUTO_ACCEPT` | float | `0.80` | Confidence threshold $\ge 0.80$ will automatically proceed with detected corners. |
-| `CONFIDENCE_AWAIT_CONFIRMATION` | float | `0.50` | Confidence between $0.50$ and $0.79$ halts at `awaiting_corners` with suggested corners. |
+| `CONFIDENCE_AUTO_ACCEPT` | float | `0.80` | Confidence threshold ≥ 0.80 will automatically proceed with detected corners. |
+| `CONFIDENCE_AWAIT_CONFIRMATION` | float | `0.50` | Confidence between 0.50 and 0.79 halts at `awaiting_corners` with suggested corners. |
 | `JOB_LEASE_TIMEOUT_SECONDS` | integer | `300` (5 min) | Stale job timeout before reclaiming a job if a worker crashes. |
 | `JOB_MAX_ATTEMPTS` | integer | `3` | Maximum retry attempts for transient failures before marking as permanently failed. |
 | `POLL_INTERVAL_SECONDS` | float | `1.5` | Sleep interval in seconds when worker finds no pending jobs. |
@@ -94,18 +94,18 @@ Parameters passed in `job.settings`:
 | `paper_warmth` | float | `0.0` to `1.0` | `0.75` | Warmth of aged paper patina in vintage preset: `0.0` (clean light cream) to `0.75` (authentic warm golden ivory) to `1.0` (deep antique parchment). |
 | `bleed_through_reduction` | float | `0.50` to `0.98` | `0.82` | White-point ratio to suppress faint show-through writing from back page of thin notebook paper. |
 | `margin_inset` | float | `0.0` to `0.10` | `0.0` | Inward margin crop fraction to cleanly eliminate spiral wire bindings, punch holes, or desk edges. |
-| `denoise` | string | `"off"`, `"light"`, `"medium"` | `"light"` | Degree of stroke-preserving denoising. `"light"` uses bilateral filter ($d=5$); `"medium"` uses Fast Non-Local Means. |
+| `denoise` | string | `"off"`, `"light"`, `"medium"` | `"light"` | Degree of stroke-preserving denoising. `"light"` uses bilateral filter (d = 5); `"medium"` uses Fast Non-Local Means. |
 | `threshold_method` | string | `"adaptive"`, `"otsu"` | `"adaptive"` | Binarization algorithm (used only when preset is `pure_bw`). |
 | `threshold_strength` | float | `0.0` to `1.0` | `0.5` | Threshold sensitivity. Lower values produce bolder strokes; higher values produce thinner, lighter strokes. |
 | `adaptive_block_size` | integer (odd) | e.g. `15, 25, 35` | `None` (auto) | Custom neighborhood block size. When `None`, auto-calculated proportional to image diagonal. |
-| `adaptive_c` | float | e.g. `5.0 - 20.0` | `None` (auto) | Custom offset subtracted from weighted mean. When `None`, derived as $4.0 + 12.0 \times \text{threshold\_strength}$. |
+| `adaptive_c` | float | e.g. `5.0 - 20.0` | `None` (auto) | Custom offset subtracted from weighted mean. When `None`, derived as `4.0 + 12.0 * threshold_strength`. |
 
 ---
 
 ### 3.3 Corner Geometry (`corners`)
 
 - **Format**: `list[Point]` or `[[x, y], [x, y], [x, y], [x, y]]`
-- **Coordinate Space**: Based on the EXIF-normalized image (top-left is $[0, 0]$), prior to any preview resizing.
+- **Coordinate Space**: Based on the EXIF-normalized image (top-left is `[0, 0]`), prior to any preview resizing.
 - **Ordering**: Automatically sorted clockwise by the worker:
   `[0: top-left, 1: top-right, 2: bottom-right, 3: bottom-left]`
 - If `corners = None`, the worker executes automatic paper contour detection.
@@ -138,12 +138,12 @@ Every completed job produces quality metrics stored in `{job_id}_metadata.json`:
   - `"passed"`: All checks passed smoothly.
   - `"warning"`: Minor warnings raised (usable image, but flagged for user attention).
   - `"rejected"`: Image unreadable or blank (fails processing).
-- `blur_score`: Variance of Laplacian. Scores $< 35.0$ indicate blurry or out-of-focus capture.
-- `ink_coverage`: Proportion of dark ink pixels. Normal letters range between $0.5\%$ and $40\%$.
+- `blur_score`: Variance of Laplacian. Scores < 35.0 indicate blurry or out-of-focus capture.
+- `ink_coverage`: Proportion of dark ink pixels. Normal letters range between 0.5% and 40%.
 - Potential QA warning reasons:
   - `POTENTIAL_BLUR`: Sharpness score is below threshold.
-  - `LOW_INK_COVERAGE`: $< 0.05\%$ ink detected (possible blank page).
-  - `EXCESSIVE_DARK_COVERAGE`: $> 65\%$ dark pixels (incorrect threshold or dark photo).
+  - `LOW_INK_COVERAGE`: < 0.05% ink detected (possible blank page).
+  - `EXCESSIVE_DARK_COVERAGE`: > 65% dark pixels (incorrect threshold or dark photo).
   - `SOLID_WHITE_IMAGE`: Solid white canvas with no contrast.
   - `SOLID_BLACK_IMAGE`: Solid black canvas.
 

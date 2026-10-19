@@ -87,8 +87,8 @@ Hệ thống xử lý ảnh và worker nền tảng (standalone, deterministic) 
 | `MAX_IMAGE_FILE_SIZE_BYTES` | integer | `52428800` (50 MB) | Dung lượng file tối đa cho phép tải lên. |
 | `MAX_IMAGE_PIXELS` | integer | `50000000` (50 MP) | Giới hạn số lượng pixel tối đa phòng chống bom giải nén (Decompression Bomb). |
 | `MAX_OUTPUT_DIMENSION` | integer | `8192` | Kích thước cạnh dài tối đa của ảnh đầu ra (tự động thu nhỏ tỷ lệ nếu vượt quá). |
-| `CONFIDENCE_AUTO_ACCEPT` | float | `0.80` | Độ tin cậy $\ge 0.80$ sẽ tự động nắn thẳng mà không dừng hỏi người dùng. |
-| `CONFIDENCE_AWAIT_CONFIRMATION` | float | `0.50` | Độ tin cậy $< 0.80$ sẽ tạm dừng ở `awaiting_corners` để giao diện hiển thị 4 góc gợi ý. |
+| `CONFIDENCE_AUTO_ACCEPT` | float | `0.80` | Độ tin cậy ≥ 0.80 sẽ tự động nắn thẳng mà không dừng hỏi người dùng. |
+| `CONFIDENCE_AWAIT_CONFIRMATION` | float | `0.50` | Độ tin cậy < 0.80 sẽ tạm dừng ở `awaiting_corners` để giao diện hiển thị 4 góc gợi ý. |
 | `JOB_LEASE_TIMEOUT_SECONDS` | integer | `300` (5 phút) | Thời gian hết hạn lease để tự động giải phóng job nếu worker bị crash đột ngột. |
 | `JOB_MAX_ATTEMPTS` | integer | `3` | Số lần thử lại tối đa khi gặp lỗi bất định trước khi đánh dấu thất bại. |
 
