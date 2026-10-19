@@ -7,53 +7,53 @@ import numpy as np
 def estimate_background(
     gray: np.ndarray,
     scale_factor: float = 0.25,
-    blur_kernel_ratio: float = 0.08,
+    morph_kernel_ratio: float = 0.05,
 ) -> np.ndarray:
-    """Estimate low-frequency background illumination via scaled Gaussian filtering.
+    """Estimate true paper illumination field via morphological dilation and smoothing.
 
-    Downscales for computational speed and wide-field smoothing, then upsamples back.
+    Uses morphological dilation on a downsampled image to remove dark ink strokes
+    and extract the pristine background lighting map across the page.
 
     Args:
         gray: 2D uint8 grayscale image.
-        scale_factor: Downscaling factor for illumination estimation (0.1 to 0.5).
-        blur_kernel_ratio: Ratio of image dimension used for Gaussian blur sigma.
+        scale_factor: Downscaling factor for speed and wide-area smoothing (0.15 to 0.35).
+        morph_kernel_ratio: Ratio of downscaled dimension used for morphological structuring element.
 
     Returns:
         2D float32 background illumination map of original shape.
     """
     h, w = gray.shape[:2]
-    small_w = max(int(w * scale_factor), 32)
-    small_h = max(int(h * scale_factor), 32)
+    small_w = max(int(round(w * scale_factor)), 32)
+    small_h = max(int(round(h * scale_factor)), 32)
 
-    # Downsample
+    # 1. Downsample
     small = cv2.resize(gray, (small_w, small_h), interpolation=cv2.INTER_AREA)
 
-    # Estimate blur sigma relative to downscaled dimension
-    sigma = max(10.0, min(small_w, small_h) * blur_kernel_ratio)
-    ksize = int(2 * round(3 * sigma) + 1)
+    # 2. Morphological dilation to eliminate dark ink strokes (leaving pure paper intensity)
+    k_dim = max(11, int(round(min(small_w, small_h) * morph_kernel_ratio)) | 1)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_dim, k_dim))
+    dilated = cv2.dilate(small, kernel)
 
-    blurred_small = cv2.GaussianBlur(
-        small.astype(np.float32),
-        (ksize, ksize),
-        sigmaX=sigma,
-        sigmaY=sigma,
-    )
+    # 3. Median and gentle Gaussian blur to smooth out local texture transitions
+    med_k = max(7, (k_dim // 2) | 1)
+    smoothed = cv2.medianBlur(dilated, med_k)
+    blurred = cv2.GaussianBlur(smoothed.astype(np.float32), (k_dim, k_dim), sigmaX=k_dim / 3.0)
 
-    # Upsample back to original resolution
-    background = cv2.resize(blurred_small, (w, h), interpolation=cv2.INTER_LINEAR)
+    # 4. Upsample back to original resolution
+    background = cv2.resize(blurred, (w, h), interpolation=cv2.INTER_LINEAR)
     return np.maximum(background, 1.0)
 
 
 def correct_illumination_gray(
     gray: np.ndarray,
-    target_paper_val: float = 230.0,
+    target_paper_val: float = 245.0,
     strength: float = 1.0,
 ) -> np.ndarray:
     """Normalize illumination across a grayscale image, removing uneven shading and shadows.
 
     Args:
         gray: 2D uint8 grayscale image.
-        target_paper_val: Desired mean brightness for paper background (usually 220-240).
+        target_paper_val: Desired brightness for paper background (usually 240-250).
         strength: Correction blending factor (0.0 = no correction, 1.0 = full normalization).
 
     Returns:
@@ -76,7 +76,7 @@ def correct_illumination_gray(
 
 def correct_illumination_rgb(
     rgb: np.ndarray,
-    target_paper_val: float = 230.0,
+    target_paper_val: float = 245.0,
     strength: float = 1.0,
 ) -> np.ndarray:
     """Normalize illumination on color images via LAB luminance channel to preserve hues.
@@ -92,8 +92,6 @@ def correct_illumination_rgb(
     lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
     l_chan, a_chan, b_chan = cv2.split(lab)
 
-    corrected_l = correct_illumination_gray(
-        l_chan, target_paper_val=target_paper_val, strength=strength
-    )
+    corrected_l = correct_illumination_gray(l_chan, target_paper_val=target_paper_val, strength=strength)
     corrected_lab = cv2.merge([corrected_l, a_chan, b_chan])
     return cv2.cvtColor(corrected_lab, cv2.COLOR_LAB2RGB)

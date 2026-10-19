@@ -113,3 +113,39 @@ def test_pipeline_triggers_awaiting_corners_when_confidence_insufficient(
     assert result.status == "awaiting_corners"
     assert result.output_path is None
     assert result.detected_corners is not None
+
+
+def test_pipeline_margin_inset(
+    temp_storage: Path,
+    sample_image_file: Path,
+    synthetic_desk_photo,
+):
+    _, gt_corners = synthetic_desk_photo
+    config = WorkerConfig(storage_root=temp_storage)
+    processor = LetterProcessor(config)
+
+    manual_pts = [Point.from_array(pt) for pt in gt_corners]
+    # Process without margin_inset
+    job_full = LetterJob(
+        job_id="job_full",
+        input_path=sample_image_file.name,
+        output_dir="out_full",
+        corners=manual_pts,
+        settings=RestoreSettings(margin_inset=0.0),
+    )
+    res_full = processor.process(job_full)
+
+    # Process with 5% margin_inset
+    job_inset = LetterJob(
+        job_id="job_inset",
+        input_path=sample_image_file.name,
+        output_dir="out_inset",
+        corners=manual_pts,
+        settings=RestoreSettings(margin_inset=0.05),
+    )
+    res_inset = processor.process(job_inset)
+
+    assert res_full.status == "completed"
+    assert res_inset.status == "completed"
+    assert res_inset.quality.width < res_full.quality.width
+    assert res_inset.quality.height < res_full.quality.height

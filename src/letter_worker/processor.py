@@ -147,6 +147,15 @@ class LetterProcessor:
                 max_dimension=self.config.max_output_dimension,
             )
 
+            # Optional margin inset to trim away spiral bindings or dirty border edges
+            if job.settings.margin_inset > 0.0:
+                inset = min(job.settings.margin_inset, 0.15)
+                dx = int(round(out_w * inset))
+                dy = int(round(out_h * inset))
+                if out_w - 2 * dx >= 100 and out_h - 2 * dy >= 100:
+                    rectified = rectified[dy : out_h - dy, dx : out_w - dx]
+                    out_h, out_w = rectified.shape[:2]
+
             # 5. Stage: Restoration (Illumination correction & preset cleanup)
             self._notify(on_progress, job_id, JobStage.RESTORING, 75, "RESTORATION_APPLIED")
             restored = restore_image(rectified, job.settings)

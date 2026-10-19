@@ -53,6 +53,18 @@ class RestoreSettings(BaseModel):
         default=None,
         description="Custom constant subtracted in adaptive thresholding. If None, derived from strength.",
     )
+    bleed_through_reduction: float = Field(
+        default=0.82,
+        ge=0.50,
+        le=0.98,
+        description="White-point threshold ratio to eliminate show-through text from back of the page (0.50 to 0.98).",
+    )
+    margin_inset: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=0.10,
+        description="Fraction of width/height to crop inward from edges to eliminate spiral bindings or dirty borders (0.0 to 0.10).",
+    )
 
 
 class JobStage(StrEnum):

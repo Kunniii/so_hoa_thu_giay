@@ -1,5 +1,6 @@
 """Tests for imaging/cleanup.py: Pure B&W, Natural, and Vintage restoration presets."""
 
+import cv2
 import numpy as np
 
 from letter_worker.imaging.cleanup import (
@@ -58,3 +59,23 @@ def test_restore_image_dispatcher(synthetic_letter_image):
         settings = RestoreSettings(preset=preset)
         out = restore_image(synthetic_letter_image, settings)
         assert out is not None
+
+
+def test_bleed_through_reduction_removes_faint_artifacts():
+    # Paper without ink at y < 80
+    paper = np.full((300, 300, 3), 245, dtype=np.uint8)
+    cv2.putText(
+        paper,
+        "Faint back writing",
+        (20, 50),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (215, 215, 215),
+        thickness=2,
+    )
+    # Bleed-through reduction at default 0.82 suppresses text with contrast ~88% of paper
+    settings = RestoreSettings(preset="natural", bleed_through_reduction=0.82)
+    restored = cleanup_natural(paper, settings)
+    roi = restored[30:60, 20:200]
+    # Should be cleanly pushed to pure white paper (255)
+    assert np.all(roi == 255)

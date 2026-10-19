@@ -29,7 +29,14 @@ def synthetic_letter_image() -> np.ndarray:
         for x in range(50, 350, 15):
             dy = int(np.sin(x * 0.1) * 4)
             pts.append([x, y + dy])
-        cv2.polylines(paper, [np.array(pts, dtype=np.int32)], False, (30, 25, 20), thickness=2)
+        cv2.polylines(
+            paper,
+            [np.array(pts, dtype=np.int32)],
+            False,
+            (30, 25, 20),
+            thickness=2,
+            lineType=cv2.LINE_AA,
+        )
 
     return paper
 

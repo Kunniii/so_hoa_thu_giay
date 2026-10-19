@@ -1,9 +1,9 @@
-"""Image restoration and cleanup presets: Pure B&W, Natural, and Vintage."""
+"""Image restoration and cleanup presets: Pure B&W, Natural, and Vintage with bleed-through suppression."""
 
 import cv2
 import numpy as np
 
-from letter_worker.imaging.illumination import correct_illumination_gray
+from letter_worker.imaging.illumination import estimate_background
 from letter_worker.schemas import RestoreSettings
 
 
@@ -12,50 +12,85 @@ def apply_denoise(gray: np.ndarray, mode: str = "light") -> np.ndarray:
     if mode == "off":
         return gray
     elif mode == "light":
-        # Fast gaussian or small bilateral to preserve fine ink lines
+        # Bilateral filter preserves fine ink strokes and punctuation
         return cv2.bilateralFilter(gray, d=5, sigmaColor=25, sigmaSpace=25)
     elif mode == "medium":
-        # Stronger bilateral or fastNlMeans
+        # Fast non-local means for high-ISO noise
         return cv2.fastNlMeansDenoising(gray, h=6, templateWindowSize=7, searchWindowSize=21)
     return gray
 
 
+def normalize_and_suppress_bleed_through(
+    gray: np.ndarray,
+    bleed_through_reduction: float = 0.82,
+    threshold_strength: float = 0.5,
+) -> np.ndarray:
+    """Normalize background to 1.0 and suppress faint show-through text from back of page.
+
+    Args:
+        gray: 2D uint8 grayscale image.
+        bleed_through_reduction: White-point threshold ratio (0.50 to 0.98).
+            Faint show-through text has lower contrast relative to paper than primary ink.
+            Pixels >= this ratio are pushed to pure 1.0 paper.
+        threshold_strength: Sensitivity controlling ink stroke darkness.
+
+    Returns:
+        float32 2D array in [0.0, 1.0] where 1.0 is pure paper and 0.0 is deep ink.
+    """
+    gray_f = gray.astype(np.float32)
+    background = estimate_background(gray)
+    norm = gray_f / background
+
+    # White-point: anything >= white_point becomes pure paper background
+    white_point = float(np.clip(bleed_through_reduction, 0.50, 0.98))
+
+    # Black-point: primary ink boundary
+    black_point = 0.20 + (1.0 - threshold_strength) * 0.25
+    black_point = min(black_point, white_point - 0.15)
+
+    # Stretch contrast between black_point and white_point
+    stretched = np.clip((norm - black_point) / (white_point - black_point), 0.0, 1.0)
+
+    # Power curve to retain ink stroke gradation while keeping paper pristine
+    cleaned = np.power(stretched, 1.25)
+    return cleaned
+
+
 def cleanup_pure_bw(image: np.ndarray, settings: RestoreSettings) -> np.ndarray:
-    """Preset A: Pure B&W binarization. White paper (255), black ink (0)."""
+    """Preset A: Pure B&W binarization. Clean white paper (255) and crisp dark ink (0)."""
     if image.ndim == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     else:
         gray = image.copy()
 
-    # 1. Correct illumination
-    corrected = correct_illumination_gray(gray, target_paper_val=235.0, strength=1.0)
+    denoised = apply_denoise(gray, mode=settings.denoise)
+    cleaned_norm = normalize_and_suppress_bleed_through(
+        denoised,
+        bleed_through_reduction=settings.bleed_through_reduction,
+        threshold_strength=settings.threshold_strength,
+    )
+    cleaned_u8 = (cleaned_norm * 255.0).astype(np.uint8)
 
-    # 2. Denoise
-    denoised = apply_denoise(corrected, mode=settings.denoise)
-
-    # 3. Thresholding
     if settings.threshold_method == "otsu":
-        _, binary = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, binary = cv2.threshold(cleaned_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     else:
         # Adaptive thresholding
-        h, w = denoised.shape
+        h, w = cleaned_u8.shape
         if settings.adaptive_block_size is not None:
             block_size = settings.adaptive_block_size
             if block_size % 2 == 0:
                 block_size += 1
         else:
-            # Scaled odd block size
             diag = int(np.hypot(h, w))
             block_size = max(15, (diag // 45) | 1)
 
         if settings.adaptive_c is not None:
             c_val = settings.adaptive_c
         else:
-            # Derived from threshold strength: strength 0.0 -> C=4, strength 1.0 -> C=16
             c_val = 4.0 + (settings.threshold_strength * 12.0)
 
         binary = cv2.adaptiveThreshold(
-            denoised,
+            cleaned_u8,
             255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY,
@@ -67,61 +102,41 @@ def cleanup_pure_bw(image: np.ndarray, settings: RestoreSettings) -> np.ndarray:
 
 
 def cleanup_natural(image: np.ndarray, settings: RestoreSettings) -> np.ndarray:
-    """Preset B: Natural enhancement. Multi-level grayscale preserving subtle ink shades."""
+    """Preset B: Natural enhancement. Multi-level grayscale preserving subtle pencil/ink nuances."""
     if image.ndim == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     else:
         gray = image.copy()
 
-    # 1. Illumination correction
-    corrected = correct_illumination_gray(gray, target_paper_val=235.0, strength=0.92)
-
-    # 2. Denoise
-    denoised = apply_denoise(corrected, mode=settings.denoise)
-
-    # 3. Controlled contrast enhancement via CLAHE
-    clahe = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(8, 8))
-    enhanced = clahe.apply(denoised)
-
-    # 4. Whiten background slightly while preserving ink nuances
-    # Linear stretch above threshold: anything >= 220 pushed gracefully to 255
-    lut = np.arange(256, dtype=np.float32)
-    bg_thresh = 210.0
-    mask_bg = lut >= bg_thresh
-    lut[mask_bg] = bg_thresh + (lut[mask_bg] - bg_thresh) * (255.0 - bg_thresh) / (
-        255.0 - bg_thresh + 1e-5
+    denoised = apply_denoise(gray, mode=settings.denoise)
+    cleaned_norm = normalize_and_suppress_bleed_through(
+        denoised,
+        bleed_through_reduction=settings.bleed_through_reduction,
+        threshold_strength=settings.threshold_strength,
     )
-    # Apply threshold strength to ink contrast
-    ink_factor = 0.85 + (1.0 - settings.threshold_strength) * 0.3
-    lut[~mask_bg] = np.clip(lut[~mask_bg] * ink_factor, 0, bg_thresh)
-
-    stretched = cv2.LUT(enhanced, np.clip(lut, 0, 255).astype(np.uint8))
-    return stretched
+    return np.clip(cleaned_norm * 255.0, 0, 255).astype(np.uint8)
 
 
 def cleanup_vintage(image: np.ndarray, settings: RestoreSettings) -> np.ndarray:
-    """Preset C: Vintage parchment tone with dark sepia ink."""
+    """Preset C: Vintage parchment tone with warm ivory paper and antique dark sepia ink."""
     if image.ndim == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     else:
         gray = image.copy()
 
-    # 1. Gentle illumination correction (keeps subtle organic texture)
-    corrected = correct_illumination_gray(gray, target_paper_val=225.0, strength=0.65)
+    denoised = apply_denoise(gray, mode=settings.denoise)
+    cleaned_norm = normalize_and_suppress_bleed_through(
+        denoised,
+        bleed_through_reduction=settings.bleed_through_reduction,
+        threshold_strength=settings.threshold_strength,
+    )
 
-    # 2. Denoise
-    denoised = apply_denoise(corrected, mode=settings.denoise)
+    # Warm ivory parchment paper (#FBF6EC) and antique sepia ink (#261C14)
+    paper_rgb = np.array([251.0, 246.0, 236.0], dtype=np.float32)
+    ink_rgb = np.array([38.0, 28.0, 20.0], dtype=np.float32)
 
-    # 3. Contrast adjustment
-    clahe = cv2.createCLAHE(clipLimit=1.3, tileGridSize=(8, 8))
-    enhanced = clahe.apply(denoised)
-
-    # 4. Color mapping to warm aged parchment & antique brown ink
-    paper_rgb = np.array([245.0, 238.0, 222.0], dtype=np.float32)  # Warm ivory
-    ink_rgb = np.array([42.0, 32.0, 24.0], dtype=np.float32)  # Iron gall sepia
-
-    norm = (enhanced.astype(np.float32) / 255.0)[:, :, np.newaxis]
-    vintage_rgb = ink_rgb * (1.0 - norm) + paper_rgb * norm
+    norm_3d = cleaned_norm[:, :, np.newaxis]
+    vintage_rgb = ink_rgb * (1.0 - norm_3d) + paper_rgb * norm_3d
 
     return np.clip(vintage_rgb, 0, 255).astype(np.uint8)
 
