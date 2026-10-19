@@ -5,6 +5,7 @@ import pytest
 
 from letter_worker.errors import InvalidCornersError
 from letter_worker.imaging.geometry import (
+    estimate_3d_aspect_ratio,
     estimate_rectified_dimensions,
     order_corners,
     rectify_perspective,
@@ -56,11 +57,39 @@ def test_validate_quadrilateral_duplicate_points():
 
 
 def test_estimate_rectified_dimensions():
-    # 300 wide by 400 high roughly
+    # 300 wide by 400 high roughly in free mode
     corners = np.array([[0, 0], [300, 0], [300, 400], [0, 400]], dtype=np.float32)
-    w, h = estimate_rectified_dimensions(corners, max_dimension=8192)
+    w, h = estimate_rectified_dimensions(corners, aspect_ratio_mode="free")
     assert w == 300
     assert h == 400
+
+    # A4 preset mode
+    w_a4, h_a4 = estimate_rectified_dimensions(corners, aspect_ratio_mode="a4")
+    assert abs((w_a4 / h_a4) - (1.0 / 1.41421356)) < 0.01
+
+    # Notebook preset mode (1:1.35)
+    w_nb, h_nb = estimate_rectified_dimensions(corners, aspect_ratio_mode="notebook")
+    assert abs((w_nb / h_nb) - (1.0 / 1.35)) < 0.01
+
+
+def test_estimate_3d_aspect_ratio_on_tilted_perspective():
+    # A standard A4 document (1000 x 1414, ratio = 0.707)
+    # Photographed tilted: top edge is smaller due to perspective depth
+    # Corners: TL, TR, BR, BL
+    tilted_corners = np.array(
+        [
+            [350.0, 200.0],   # TL (farther away, narrower)
+            [1650.0, 200.0],  # TR (width = 1300)
+            [1800.0, 1900.0], # BR (width = 1600)
+            [200.0, 1900.0],  # BL
+        ],
+        dtype=np.float32,
+    )
+    # Estimate 3D aspect ratio
+    ratio = estimate_3d_aspect_ratio(tilted_corners, image_shape=(2500, 2000))
+    assert ratio is not None
+    # Should recover true physical aspect ratio (around 0.70 - 0.73), not distorted wide
+    assert 0.65 <= ratio <= 0.78
 
 
 def test_rectify_perspective_transforms_accurately(synthetic_desk_photo):

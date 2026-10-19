@@ -125,15 +125,105 @@ def validate_quadrilateral(
             raise InvalidCornersError("Corners lie significantly outside image boundaries")
 
 
+STANDARD_ASPECT_RATIOS: dict[str, float] = {
+    "a4": 1.0 / 1.41421356,  # ~0.7071 (Width / Height)
+    "notebook": 1.0 / 1.35,  # ~0.7407 (Vietnamese student notebook / B5)
+    "letter": 8.5 / 11.0,  # ~0.7727 (US Letter standard)
+}
+
+
+def estimate_3d_aspect_ratio(
+    ordered_corners: np.ndarray,
+    image_shape: tuple[int, ...] | None = None,
+) -> float | None:
+    """Estimate true physical aspect ratio (width / height) of a 3D rectangle from perspective view.
+
+    Implements Zhang's single-view rectangle geometry (Microsoft Research MSR-TR-2003-39).
+    Uses vanishing geometry to solve for camera focal length and true physical aspect ratio,
+    preventing horizontal or vertical stretching under tilted camera angles.
+
+    Args:
+        ordered_corners: Shape (4, 2) array ordered [TL, TR, BR, BL].
+        image_shape: (H, W) or (H, W, C) of original image for principal point center.
+
+    Returns:
+        float: True physical aspect ratio (width / height), or None if geometry is degenerate.
+    """
+    tl, tr, br, bl = ordered_corners
+    if image_shape is not None:
+        h, w = image_shape[:2]
+        u0, v0 = w / 2.0, h / 2.0
+    else:
+        u0 = float(np.mean(ordered_corners[:, 0]))
+        v0 = float(np.mean(ordered_corners[:, 1]))
+
+    # Zhang coordinate indexing: p1=TL, p2=TR, p3=BL, p4=BR relative to optical center
+    p1 = np.array([tl[0] - u0, tl[1] - v0, 1.0], dtype=np.float64)
+    p2 = np.array([tr[0] - u0, tr[1] - v0, 1.0], dtype=np.float64)
+    p3 = np.array([bl[0] - u0, bl[1] - v0, 1.0], dtype=np.float64)
+    p4 = np.array([br[0] - u0, br[1] - v0, 1.0], dtype=np.float64)
+
+    # Cross products
+    cp_14 = np.cross(p1, p4)
+    cp_24 = np.cross(p2, p4)
+    cp_34 = np.cross(p3, p4)
+
+    denom_k2 = float(np.dot(cp_24, p3))
+    denom_k3 = float(np.dot(cp_34, p2))
+
+    if abs(denom_k2) < 1e-9 or abs(denom_k3) < 1e-9:
+        return None
+
+    k2 = float(np.dot(cp_14, p3)) / denom_k2
+    k3 = float(np.dot(cp_14, p2)) / denom_k3
+
+    # Direction vectors along horizontal and vertical perspective edges
+    n2 = k2 * p2 - p1
+    n3 = k3 * p3 - p1
+
+    denom_f2 = n2[2] * n3[2]
+    # Solve for squared focal length f^2 via orthogonality: (n2 . n3) = 0 in 3D
+    if abs(denom_f2) >= 1e-8:
+        f2 = -(n2[0] * n3[0] + n2[1] * n3[1]) / denom_f2
+    else:
+        f2 = -1.0
+
+    # If f2 <= 0 (edges near parallel / frontal), use nominal focal length of camera
+    if f2 <= 0.0 or not math.isfinite(f2):
+        f0 = math.hypot(w, h)
+        f2 = f0 ** 2
+
+    # Recover aspect ratio (width / height)
+    num = n2[0] ** 2 + n2[1] ** 2 + f2 * (n2[2] ** 2)
+    den = n3[0] ** 2 + n3[1] ** 2 + f2 * (n3[2] ** 2)
+
+    if den <= 0.0 or num <= 0.0:
+        return None
+
+    ratio = math.sqrt(num / den)
+    # Sanity bounds check for document aspect ratio (0.3 to 3.0)
+    if not (0.3 <= ratio <= 3.0):
+        return None
+
+    return float(ratio)
+
+
 def estimate_rectified_dimensions(
     ordered_corners: np.ndarray,
+    image_shape: tuple[int, ...] | None = None,
+    aspect_ratio_mode: str = "auto",
     max_dimension: int = 8192,
     min_dimension: int = 100,
 ) -> tuple[int, int]:
-    """Calculate the target width and height for perspective rectification based on edge lengths.
+    """Calculate target width and height for perspective rectification.
+
+    Avoids horizontal/vertical stretching under tilted camera angles by recovering the
+    true physical aspect ratio or applying a standard document ratio.
 
     Args:
         ordered_corners: Shape (4, 2) ordered [TL, TR, BR, BL].
+        image_shape: Source image shape (H, W, ...).
+        aspect_ratio_mode: 'auto' (3D perspective recovery), 'a4', 'notebook', 'letter', or 'free'.
         max_dimension: Upper cap on width and height.
         min_dimension: Minimum allowed dimension.
 
@@ -144,11 +234,59 @@ def estimate_rectified_dimensions(
 
     top_w = float(np.linalg.norm(tr - tl))
     bottom_w = float(np.linalg.norm(br - bl))
-    width = max(int(round(max(top_w, bottom_w))), min_dimension)
+    raw_w = max(top_w, bottom_w)
 
     left_h = float(np.linalg.norm(bl - tl))
     right_h = float(np.linalg.norm(br - tr))
-    height = max(int(round(max(left_h, right_h))), min_dimension)
+    raw_h = max(left_h, right_h)
+
+    # 1. Determine target aspect ratio (W / H)
+    target_ratio: float | None = None
+
+    if aspect_ratio_mode in STANDARD_ASPECT_RATIOS:
+        target_ratio = STANDARD_ASPECT_RATIOS[aspect_ratio_mode]
+
+    elif aspect_ratio_mode == "auto":
+        # Recover 3D physical aspect ratio using Zhang's perspective geometry
+        ratio_3d = estimate_3d_aspect_ratio(ordered_corners, image_shape=image_shape)
+        if ratio_3d is not None:
+            target_ratio = ratio_3d
+        else:
+            # Fallback if image was taken head-on (frontal, no perspective convergence):
+            # Check Euclidean ratio against standards; if close, snap to nearest standard,
+            # otherwise use the Euclidean ratio.
+            euclidean_ratio = raw_w / max(raw_h, 1.0)
+            best_standard = None
+            best_diff = float("inf")
+            for std_ratio in STANDARD_ASPECT_RATIOS.values():
+                diff = abs(euclidean_ratio - std_ratio)
+                if diff < best_diff and diff < 0.08:
+                    best_diff = diff
+                    best_standard = std_ratio
+            target_ratio = best_standard if best_standard is not None else euclidean_ratio
+
+    elif aspect_ratio_mode == "free":
+        target_ratio = None  # Naive 2D Euclidean
+
+    # 2. Compute (width, height) based on anchor edge and target aspect ratio
+    if target_ratio is not None and target_ratio > 0:
+        if target_ratio <= 1.0:
+            # Portrait:
+            # Under pitch tilt, raw_h is foreshortened. Anchor to the longer dimension
+            # ensuring neither dimension is compressed below maximum observed detail.
+            height = max(raw_h, raw_w / target_ratio)
+            width = height * target_ratio
+        else:
+            # Landscape:
+            width = max(raw_w, raw_h * target_ratio)
+            height = width / target_ratio
+
+        width = max(int(round(width)), min_dimension)
+        height = max(int(round(height)), min_dimension)
+    else:
+        # Unconstrained 2D Euclidean (naive)
+        width = max(int(round(raw_w)), min_dimension)
+        height = max(int(round(raw_h)), min_dimension)
 
     # Scale down proportionally if exceeding max_dimension
     max_side = max(width, height)
@@ -163,6 +301,7 @@ def estimate_rectified_dimensions(
 def rectify_perspective(
     image: np.ndarray,
     corners: np.ndarray,
+    aspect_ratio_mode: str = "auto",
     max_dimension: int = 8192,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Rectify perspective of the region defined by corners into an upright rectangular image.
@@ -170,6 +309,7 @@ def rectify_perspective(
     Args:
         image: Source image numpy array (H, W, C) or (H, W).
         corners: 4 corners in source image coordinates.
+        aspect_ratio_mode: Aspect ratio constraint mode ('auto', 'a4', 'notebook', 'letter', 'free').
         max_dimension: Safety limit on output resolution.
 
     Returns:
@@ -182,7 +322,12 @@ def rectify_perspective(
     ordered = order_corners(corners)
     validate_quadrilateral(ordered, image_shape=image.shape)
 
-    out_w, out_h = estimate_rectified_dimensions(ordered, max_dimension=max_dimension)
+    out_w, out_h = estimate_rectified_dimensions(
+        ordered,
+        image_shape=image.shape,
+        aspect_ratio_mode=aspect_ratio_mode,
+        max_dimension=max_dimension,
+    )
 
     # Target rectangle destination points: [TL, TR, BR, BL]
     dst = np.array(

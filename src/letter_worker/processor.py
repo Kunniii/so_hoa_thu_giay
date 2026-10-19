@@ -144,6 +144,7 @@ class LetterProcessor:
             rectified, (out_w, out_h) = rectify_perspective(
                 loaded.image_rgb,
                 effective_corners,
+                aspect_ratio_mode=job.settings.aspect_ratio,
                 max_dimension=self.config.max_output_dimension,
             )
 

@@ -71,6 +71,10 @@ class RestoreSettings(BaseModel):
         le=1.0,
         description="Warmth and aged patina intensity of paper in vintage preset: 0.0 (light cream) to 1.0 (deep antique parchment).",
     )
+    aspect_ratio: Literal["auto", "a4", "notebook", "letter", "free"] = Field(
+        default="auto",
+        description="Paper aspect ratio constraint: auto (3D perspective recovery), a4 (1:1.414), notebook (1:1.35), letter (1:1.294), or free (unconstrained 2D).",
+    )
 
 
 class JobStage(StrEnum):

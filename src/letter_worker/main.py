@@ -146,6 +146,12 @@ def cli() -> None:
     proc_p.add_argument("--bleed-through", type=float, default=0.82, help="Bleed-through reduction threshold (0.50-0.98)")
     proc_p.add_argument("--margin-inset", type=float, default=0.0, help="Fraction to crop inward from edges (0.0-0.10)")
     proc_p.add_argument("--paper-warmth", type=float, default=0.75, help="Paper warmth/patina for vintage preset (0.0-1.0)")
+    proc_p.add_argument(
+        "--aspect-ratio",
+        choices=["auto", "a4", "notebook", "letter", "free"],
+        default="auto",
+        help="Paper aspect ratio mode: auto (3D perspective), a4, notebook, letter, free",
+    )
 
     # Command: enqueue
     enq_p = subparsers.add_parser("enqueue", help="Add a job to SQLite queue")
@@ -200,6 +206,7 @@ def cli() -> None:
                 bleed_through_reduction=args.bleed_through,
                 margin_inset=args.margin_inset,
                 paper_warmth=args.paper_warmth,
+                aspect_ratio=args.aspect_ratio,
             ),
         )
 
