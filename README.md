@@ -8,6 +8,15 @@ Designed strictly without OCR or text interpretation, separating computer vision
 
 ---
 
+## Demonstration (Before & After)
+
+| 📷 Ảnh chụp gốc (Before) | ✨ Phục chế Vintage (After) |
+| :---: | :---: |
+| <img src="assets/before.jpg" alt="Ảnh chụp ban đầu" width="360" /> | <img src="assets/after.jpg" alt="Bản scan phục chế" width="360" /> |
+| *Ảnh chụp nghiêng, bóng tối loang lổ, chữ hằn trang sau* | *Nắn thẳng phối cảnh 3D, sạch nền, giữ sắc ngà & vân giấy* |
+
+---
+
 ## 1. Architecture & Pipeline Overview
 
 ```
