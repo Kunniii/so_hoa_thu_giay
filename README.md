@@ -1,5 +1,7 @@
 # Digital Post Letter Processing Worker
 
+[English](README.md) | [Tiếng Việt](README_VI.md)
+
 A standalone, deterministic Python worker and pipeline engine for handwritten letter photo enhancement, boundary detection, perspective rectification, illumination correction, ink-and-paper separation, and quality assurance.
 
 Designed strictly without OCR or text interpretation, separating computer vision processing from UI/API orchestration.
