@@ -21,3 +21,4 @@ wheels/
 .ruff_cache/
 output/
 outputs/
+uploads/
