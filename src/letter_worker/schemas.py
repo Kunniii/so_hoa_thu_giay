@@ -65,6 +65,12 @@ class RestoreSettings(BaseModel):
         le=0.10,
         description="Fraction of width/height to crop inward from edges to eliminate spiral bindings or dirty borders (0.0 to 0.10).",
     )
+    paper_warmth: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Warmth and aged patina intensity of paper in vintage preset: 0.0 (light cream) to 1.0 (deep antique parchment).",
+    )
 
 
 class JobStage(StrEnum):

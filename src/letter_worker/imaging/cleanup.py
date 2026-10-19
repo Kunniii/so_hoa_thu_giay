@@ -131,11 +131,23 @@ def cleanup_vintage(image: np.ndarray, settings: RestoreSettings) -> np.ndarray:
         threshold_strength=settings.threshold_strength,
     )
 
-    # Warm ivory parchment paper (#FBF6EC) and antique sepia ink (#261C14)
-    paper_rgb = np.array([251.0, 246.0, 236.0], dtype=np.float32)
-    ink_rgb = np.array([38.0, 28.0, 20.0], dtype=np.float32)
+    # 1. Extract subtle paper fiber grain to preserve the tactile physical character of real paper
+    smooth_bg = cv2.GaussianBlur(gray, (45, 45), 0).astype(np.float32)
+    grain = np.clip(gray.astype(np.float32) / (smooth_bg + 1e-5), 0.94, 1.05)
+    paper_texture = np.clip(cleaned_norm * grain, 0.0, 1.0)
+    norm_3d = paper_texture[:, :, np.newaxis]
 
-    norm_3d = cleaned_norm[:, :, np.newaxis]
+    # 2. Dynamic paper warmth interpolation
+    # p_light: Light clean cream (#FBF8EE)
+    # p_deep: Authentic antique golden-aged parchment (#D0C6B0) matching original favorite letter tone
+    p_light = np.array([248.0, 242.0, 232.0], dtype=np.float32)
+    p_deep = np.array([208.0, 198.0, 176.0], dtype=np.float32)
+    warmth = float(np.clip(settings.paper_warmth, 0.0, 1.0))
+    paper_rgb = p_light * (1.0 - warmth) + p_deep * warmth
+
+    # Deep iron-gall antique sepia ink
+    ink_rgb = np.array([42.0, 32.0, 22.0], dtype=np.float32)
+
     vintage_rgb = ink_rgb * (1.0 - norm_3d) + paper_rgb * norm_3d
 
     return np.clip(vintage_rgb, 0, 255).astype(np.uint8)
