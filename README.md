@@ -79,6 +79,10 @@ Parameters passed in `job.settings`:
 | Parameter | Type | Options / Range | Default | Explanation |
 |---|---|---|---|---|
 | `preset` | string | `"pure_bw"`, `"natural"`, `"vintage"` | `"natural"` | Overall aesthetic rendering style. |
+| `aspect_ratio` | string | `"auto"`, `"a4"`, `"notebook"`, `"letter"`, `"free"` | `"auto"` | Aspect ratio mode. `"auto"` recovers true 3D physical proportions using vanishing geometry (MSR-TR-2003-39) to eliminate horizontal/vertical stretching from tilted camera angles. |
+| `paper_warmth` | float | `0.0` to `1.0` | `0.75` | Warmth of aged paper patina in vintage preset: `0.0` (clean light cream) to `0.75` (authentic warm golden ivory) to `1.0` (deep antique parchment). |
+| `bleed_through_reduction` | float | `0.50` to `0.98` | `0.82` | White-point ratio to suppress faint show-through writing from back page of thin notebook paper. |
+| `margin_inset` | float | `0.0` to `0.10` | `0.0` | Inward margin crop fraction to cleanly eliminate spiral wire bindings, punch holes, or desk edges. |
 | `denoise` | string | `"off"`, `"light"`, `"medium"` | `"light"` | Degree of stroke-preserving denoising. `"light"` uses bilateral filter ($d=5$); `"medium"` uses Fast Non-Local Means. |
 | `threshold_method` | string | `"adaptive"`, `"otsu"` | `"adaptive"` | Binarization algorithm (used only when preset is `pure_bw`). |
 | `threshold_strength` | float | `0.0` to `1.0` | `0.5` | Threshold sensitivity. Lower values produce bolder strokes; higher values produce thinner, lighter strokes. |
@@ -208,25 +212,45 @@ When `status == "awaiting_corners"`:
 
 ### Integration Pattern B: Direct Python Library (Embedded in FastAPI / Celery)
 
-If your API is written in Python (FastAPI, Django), you can run processing directly in-process or via Celery without the SQLite daemon:
+If your API is written in Python (FastAPI, Celery, Lambda, Django), you can run processing directly in-process without the SQLite daemon:
 
+#### Approach 1: High-level `process_letter` function
 ```python
-from letter_worker.config import WorkerConfig
-from letter_worker.processor import LetterProcessor
-from letter_worker.schemas import LetterJob, RestoreSettings, Point
+from letter_worker import process_letter
 
-config = WorkerConfig(storage_root="./data")
-processor = LetterProcessor(config)
+# Direct in-memory restoration (accepts file path, PIL Image, or NumPy array)
+restored_rgb, metadata = process_letter(
+    image="uploads/letter.jpg",
+    preset="vintage",              # "pure_bw", "natural", "vintage"
+    aspect_ratio="auto",           # "auto", "a4", "notebook", "letter", "free"
+    paper_warmth=0.75,             # 0.0 (light cream) to 1.0 (antique parchment)
+    bleed_through_reduction=0.82,  # suppresses faint show-through text from back page
+    margin_inset=0.01,             # trims spiral holes or dirty borders
+    output_path="outputs/restored.png",
+)
+
+print("Dimensions:", metadata["output_dimensions"])
+print("QA Status:", metadata["quality"]["status"])
+```
+
+#### Approach 2: Stateful `LetterProcessor` with progress events
+```python
+from letter_worker import LetterProcessor, LetterJob, RestoreSettings, Point, WorkerConfig
+
+processor = LetterProcessor(WorkerConfig(storage_root="./data"))
 
 job = LetterJob(
     job_id="job_fastapi_001",
     input_path="uploads/letter.jpg",
     output_dir="outputs",
     corners=[Point(x=100, y=80), Point(x=700, y=90), Point(x=680, y=600), Point(x=90, y=580)],
-    settings=RestoreSettings(preset="vintage", threshold_strength=0.6)
+    settings=RestoreSettings(preset="vintage", aspect_ratio="auto", paper_warmth=0.75),
 )
 
-result = processor.process(job)
+def on_progress(event):
+    print(f"[{event.progress}%] {event.stage}: {event.message_code}")
+
+result = processor.process(job, on_progress=on_progress)
 print("Output file:", result.output_path)
 print("QA status:", result.quality.status)
 ```
@@ -270,7 +294,7 @@ Output is printed as clean JSON to stdout:
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) package manager
 
-### Run Unit & Integration Tests (43 tests)
+### Run Unit & Integration Tests (52 tests)
 ```bash
 uv run pytest -v
 ```

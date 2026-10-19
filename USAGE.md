@@ -225,6 +225,30 @@ async def restore_letter(file: UploadFile = File(...), preset: str = "vintage"):
 
 ---
 
+### 3.4 Dùng như thư viện Python độc lập (`process_letter`)
+
+Nếu bạn đang viết script Python, xử lý hàng loạt (batch job), hay chạy trong Jupyter Notebook, hàm `process_letter` cho phép phục chế ảnh trong bộ nhớ (in-memory) chỉ với 1 dòng lệnh:
+
+```python
+from letter_worker import process_letter
+
+# Nhận file ảnh, numpy array, hoặc PIL Image và trả về (restored_rgb, metadata)
+restored_img, meta = process_letter(
+    image="input.jpg",
+    preset="vintage",              # "pure_bw", "natural", "vintage"
+    aspect_ratio="auto",           # "auto", "a4", "notebook", "letter", "free"
+    paper_warmth=0.75,             # 0.0 (kem sáng) -> 0.75 (vàng ngà) -> 1.0 (cổ đậm)
+    bleed_through_reduction=0.82,  # Lọc chữ in hằn mờ từ mặt sau
+    margin_inset=0.01,             # Cắt bớt viền mép giấy và lỗ xoắn lò xo
+    output_path="output/clean.png" # (Tùy chọn) Lưu file tự động
+)
+
+print("Kích thước xuất:", meta["output_dimensions"])
+print("Độ sắc nét:", meta["quality"]["blur_score"])
+```
+
+---
+
 ## 4. Quy trình phối hợp với Frontend UI
 
 Khi người dùng chụp một bức thư bằng điện thoại, giấy thư có thể bị xiên hoặc nền chụp phức tạp:
@@ -277,7 +301,11 @@ Khi người dùng chụp một bức thư bằng điện thoại, giấy thư c
 
 | Tên thông số | Kiểu | Giá trị hợp lệ | Mặc định | Ý nghĩa & Ứng dụng thực tế |
 |---|---|---|---|---|
-| `preset` | string | `"pure_bw"`, `"natural"`, `"vintage"` | `"natural"` | **pure_bw**: Nền trắng tinh, chữ đen đậm (phù hợp in ấn, photo lại).<br>**natural**: Nền trắng sáng, giữ sắc độ xám tự nhiên của mực viết tay, bút chì.<br>**vintage**: Nền giấy màu ngà (`#F5EEDE`), mực màu nâu sẫm sepia (`#2A2018`). |
+| `preset` | string | `"pure_bw"`, `"natural"`, `"vintage"` | `"natural"` | **pure_bw**: Nền trắng tinh, chữ đen đậm (phù hợp in ấn, photo lại).<br>**natural**: Nền trắng sáng, giữ sắc độ xám tự nhiên của mực viết tay, bút chì.<br>**vintage**: Nền giấy màu ngà ấm (`#DACEBD`), mực màu sepia nâu đen truyền thống (`#2A2016`). |
+| `aspect_ratio` | string | `"auto"`, `"a4"`, `"notebook"`, `"letter"`, `"free"` | `"auto"` | **Tỷ lệ khổ giấy**:<br>- `auto`: Tự động khôi phục tỷ lệ 3D thực bằng thuật toán điểm tụ phối cảnh (Zhang 2003), loại bỏ hiện tượng dãn ngang khi chụp góc nghiêng.<br>- `notebook`: Vở học sinh/sổ tay (1:1.35).<br>- `a4`: Khổ A4 chuẩn quốc tế (1:1.414).<br>- `letter`: US Letter (1:1.294).<br>- `free`: 2D tự do theo độ dài cạnh thô. |
+| `paper_warmth` | float | `0.0` đến `1.0` | `0.75` | **Sắc ngà giấy thư** *(dành cho preset vintage)*:<br>- `0.0`: Kem sáng tinh khôi.<br>- `0.75`: Vàng ngà hoài niệm nguyên bản.<br>- `1.0`: Giấy cổ phong vị đậm đà. |
+| `bleed_through_reduction` | float | `0.50` đến `0.98` | `0.82` | **Lọc chữ in hằn trang sau**:<br>Tự động ép nét chữ mờ có tương phản $\ge 0.82 \times \text{nền giấy}$ về màu giấy sạch, xóa bỏ chữ lem từ trang sau của giấy tập học sinh mỏng. |
+| `margin_inset` | float | `0.0` đến `0.10` | `0.0` | **Xén mép lề giấy**:<br>Tỷ lệ cắt thụt lề vào trong sau khi nắn thẳng (ví dụ `0.02` = 2%), giúp loại bỏ lỗ gáy lò xo, bóng mép bàn, ghim giấy. |
 | `denoise` | string | `"off"`, `"light"`, `"medium"` | `"light"` | Mức độ khử nhiễu hạt.<br>- `light`: Giữ nguyên nét mực mảnh và dấu chấm câu.<br>- `medium`: Khử sạch hạt nhiễu đối với ảnh chụp thiếu sáng. |
 | `threshold_method` | string | `"adaptive"`, `"otsu"` | `"adaptive"` | *(Dùng cho `pure_bw`)*.<br>- `adaptive`: Phân ngưỡng cục bộ thích ứng Gaussian.<br>- `otsu`: Phân ngưỡng toàn cục theo biểu đồ histogram. |
 | `threshold_strength` | float | `0.0` đến `1.0` | `0.5` | Độ nhạy tách nét chữ.<br>- `0.1 - 0.4`: Nét chữ đậm đà, giữ được chữ nhạt.<br>- `0.6 - 0.9`: Nét chữ thanh mảnh, lọc bỏ vết ố bẩn mờ. |
